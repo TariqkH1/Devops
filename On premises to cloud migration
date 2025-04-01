@@ -1,0 +1,155 @@
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXxxxxxxxxxxxxxxxxxxxxxxxxxxx On premises to cloud migration xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+
+1. Go to VMware and export your vm as .ovf (Open Virtualization Format)
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+
+2. Converting OVF to OVA
+You can convert your .ovf file to .ova using tools like VMware OVF Tool. Here’s how:
+
+Download and Install VMware OVF Tool:
+You can download it from VMware’s official site.
+
+Run the Conversion Command:
+Open Command Prompt and run the following command:
+"C:\Program Files\VMware\VMware OVF Tool\ovftool.exe" "C:\path\to\your\Red Hat Enterprise Linux 9 64-bit.ovf" "C:\path\to\your\Red Hat Enterprise Linux 9 64-bit.ova"
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+3. Create an S3 bucket (Ex: vm-machine-bucket-tariq)
+Create an S3 bucket in the region where you will create your EC2.
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+4. Create an IAM role named vmimport
+
+To allow VM import/export service to perform some operation you should create a service role called ‘vmimport’.
+
+
+Create a file named trust-policy.json on your computer. Add the following policy to the file:
+
+
+{
+   "Version": "2012-10-17",
+   "Statement": [
+      {
+         "Effect": "Allow",
+         "Principal": { "Service": "vmie.amazonaws.com" },
+         "Action": "sts:AssumeRole",
+         "Condition": {
+            "StringEquals":{
+               "sts:Externalid": "vmimport"
+            }
+         }
+      }
+   ]
+}
+
+
+
+$ aws iam create-role --role-name vmimport --assume-role-policy-document "file://trust-policy.json"
+
+Create another file named role-policy.json with the following policy, Don't forget to change your bucket name with existing one !
+
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "s3:GetBucketLocation",
+                "s3:GetObject",
+                "s3:ListBucket"
+            ],
+            "Resource": [
+                "arn:aws:s3:::vm-machine-bucket-tariq",
+                "arn:aws:s3:::vm-machine-bucket-tariq/*"
+            ]
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "s3:GetBucketLocation",
+                "s3:GetObject",
+                "s3:ListBucket",
+                "s3:PutObject",
+                "s3:GetBucketAcl"
+            ],
+            "Resource": [
+                "arn:aws:s3:::vm-machine-bucket-tariq",
+                "arn:aws:s3:::vm-machine-bucket-tariq/*"
+            ]
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "ec2:ModifySnapshotAttribute",
+                "ec2:CopySnapshot",
+                "ec2:RegisterImage",
+                "ec2:Describe*"
+            ],
+            "Resource": "*"
+        }
+    ]
+}
+
+
+$ aws iam put-role-policy --role-name vmimport --policy-name vmimport --policy-document "file://role-policy.json"
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+5. Upload that exported image to S3 Bucket
+
+$ aws s3 mv "/home/ubuntu/Documents/centos.ova" s3://vm-machine-bucket
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+6. Import the VM image to AWS AMI Section
+
+After you upload your VM image file to Amazon S3, you can use the AWS CLI to import the image.
+
+
+
+Create another file named containers.json with the following policy.
+
+Note : find S3 key name like: under your bucket
+
+
+[
+  {
+    "Description": "My Server OVA",
+    "Format": "ova",
+    "UserBucket": {
+        "S3Bucket": "vm-machine-bucket-tariq",
+        "S3Key": "Red Hat Enterprise Linux 9 64-bit.ova"
+    }
+  }
+]
+
+
+
+
+$ aws ec2 import-image --description "My On-Premise Centos VM" --disk-containers "file://containers.json"
+
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+7. Monitor an import image task
+
+Note: Replace "import-ami-1234567890abcdef0" from above output ImportTaskId
+
+$ aws ec2 describe-import-image-tasks --import-task-ids import-ami-1234567890abc7f744
+
+
+Status values include the following:
+active — The import task is in progress.
+deleting — The import task is being canceled.
+deleted — The import task is canceled.
+updating — Import status is updating.
+validating — The imported image is being validated.
+validated — The imported image was validated.
+converting — The imported image is being converted into an AMI.
+completed — The import task is completed and the AMI is ready to use
+
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+8. After Completed import image task, Let's check AMI section
+
+  Finally ! Launch EC2 Instance through that AMI
+
+ 
+
